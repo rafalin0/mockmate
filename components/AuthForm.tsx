@@ -12,11 +12,14 @@ import Link from "next/link";
 import { toast } from "sonner";
 import FormField from "./FormField";
 import { useRouter } from "next/navigation";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/firebase/client";
+import { signIn, signUp } from "@/lib/actions/auth.action";
 
 const authFormSchema = (type: FormType) => {
   return z.object({
     name:
-      type === "sign-in" ? z.string().min(2).max(50) : z.string().optional(),
+      type === "sign-up" ? z.string().min(2).max(50) : z.string().optional(),
     email: z.string().email(),
     password: z.string().min(8).max(50),
   });
@@ -35,15 +38,65 @@ const AuthForm = ({ type }: { type: FormType }) => {
     },
   });
 
-  // 2. Define a submit handler.
-  function onSubmit(values: z.infer<typeof formSchema>) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    console.log("Form submitted with values:", values);
     try {
-      if (type === "sign-in") {
-        toast.success("Sign in successful.");
-        router.push("/");
-      } else {
+      if (type === "sign-up") {
+        const { name, email, password } = values;
+
+        const userCredentials = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+        const result = await signUp({
+          uid: userCredentials.user.uid,
+          name: name!,
+          email,
+          password,
+        });
+
+        if(!result?.success) {
+          toast.error(result?.message);
+          return;
+        } 
+
         toast.success("Account created successfully. Please sign in.");
         router.push("/sign-in");
+        
+      } else { //Sign-in logic
+        const { email, password } = values;
+
+       try {
+        const userCredentials = await signInWithEmailAndPassword(auth, email, password);
+
+        const idToken = await userCredentials.user.getIdToken();
+
+        if(!idToken) {
+          toast.error("Failed to retrieve ID token. Please try again.");
+          return;
+        }
+
+        const result = await signIn({ // capture the result of signIn
+          email,
+          idToken,
+        });
+
+        if(!result.success) {
+          toast.error(result.message || "Failed to sign in. Please try again.");
+          return; // Stop if sever-side sign-in fails
+        }
+
+        toast.success("Signed in successfully.");
+        router.push("/");
+} catch (err) {
+  console.error("Firebase sign-in error:", err);
+  toast.error("Invalid email or password.");
+  return;
+}
+
+        
       }
     } catch (error) {
       console.log(error);
@@ -90,22 +143,6 @@ const AuthForm = ({ type }: { type: FormType }) => {
               placeholder="Enter your password"
               type="password"
             />
-            {!isSignIn && (
-              <FormField
-                control={form.control}
-                name="picture"
-                label="Profile Picture"
-                type="file"
-              />
-            )}
-            {!isSignIn && (
-              <FormField
-                control={form.control}
-                name="resume"
-                label="Resume"
-                type="file"
-              />
-            )}
 
             <Button type="submit" className="btn-primary btn">
               {isSignIn ? "Sign in" : "Create an Account"}
